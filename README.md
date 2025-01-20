@@ -3,6 +3,7 @@ Windows OS and HW information using tkinter GUI (Release v1.0.1)
 Using wxPython (Release v2.0.1)- expected to be released in 1st week of Jan.
 
 #pip install wxPython==4.0.0
+#pip install wxPython (new version)
 #pip install tkinter
 #pip install pyinstaller
 
