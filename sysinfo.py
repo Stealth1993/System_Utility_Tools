@@ -90,4 +90,6 @@ root.mainloop()
 
 
 #pip install pyinstaller
-#pyinstaller --onefile --noconsole --icon=icon.ico your_script_name.py
+#pip install tkinter
+#pip install wmi-client-wrapper-py3
+#pyinstaller --onefile --noconsole --icon=icon.ico sysinfo.py
