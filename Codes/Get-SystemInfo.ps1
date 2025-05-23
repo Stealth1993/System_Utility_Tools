@@ -55,7 +55,6 @@ $cpuL1Cache = ($cpu.L1CacheSize / 1024)  # Convert bytes to KB
 $cpuL2Cache = ($cpu.L2CacheSize / 1024)  # Convert bytes to KB
 $cpuL3Cache = ($cpu.L3CacheSize / 1024)  # Convert bytes to KB
 $cpuFamily = $cpu.Caption
-$cpuModel = $cpu.ProcessorId
 $cpuGeneration = Get-CpuGeneration -cpuName $cpuName -model $cpu.Model
 
 # Gather RAM Information
