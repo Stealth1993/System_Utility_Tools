@@ -25,7 +25,7 @@ Basic knowledge of running scripts or executables.
 
 Installation
 
-Clone the repository:git clone https://github.com/YourUsername/WindowsUtilityTools.git
+Clone the repository:git clone https://github.com/Stealth1993/System_Utility_Tools.git
 
 
 Navigate to the folder:cd WindowsUtilityTools
