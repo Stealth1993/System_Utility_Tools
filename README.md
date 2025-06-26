@@ -28,20 +28,20 @@ Installation
 Clone the repository:git clone https://github.com/Stealth1993/System_Utility_Tools.git
 
 
-Navigate to the folder:cd WindowsUtilityTools
+Navigate to the folder:cd System_Utility_Tools
 
 
-Run the desired tool (e.g., SystemInfo.bat or ShowHideTaskbar.vbs).
+Run the desired tool (e.g., SystemInfo.exe or ShowHideTaskbar.vbs).
 
 Usage
 
 SystemInfo: Double-click SystemInfo.bat to view your system details.
-ShowHideTaskbar: Run ShowHideTaskbar.vbs to toggle taskbar visibility silently.
+ShowHideTaskbar: Run ShowHideTaskbar.vbs to toggle taskbar visibility silently. Pin to the taskbar for one click access.
 Check individual tool READMEs (coming soon) for specific instructions.
 
 
 🎨 Screenshots
-Coming soon! Stay tuned for visual demos of each tool in action. 📸
+More SS Coming soon! Stay tuned for visual demos of each tool in action. 📸
 
 ![image](https://github.com/user-attachments/assets/21bfb8ba-8d6e-48c1-96fe-1ca599597a2d)
 
