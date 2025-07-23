@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # magic-wormhole file-transfer GUI — multiple file support with hidden subprocess
 # Date: July 23, 2025
+# Author: Santosh Jha (github: Stealth1993)
 
 import os
 import re
