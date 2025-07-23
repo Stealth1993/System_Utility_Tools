@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# magic-wormhole file-transfer GUI — multiple file support with hidden subprocess
+# magic-wormhole file-transfer GUI — multiple file support with hidden subprocess and multi-share
 # Date: July 23, 2025
 # Author: Santosh Jha (github: Stealth1993)
 
@@ -11,10 +11,6 @@ import threading
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
-import qrcode
-from PIL import Image, ImageTk
-import shutil
-import tempfile
 
 # ---------- Appearance (Optimized for Readability) ----------
 BG        = "#F5F5F5"
@@ -88,6 +84,10 @@ dev_label.pack(side="right", padx=10)
 q = queue.Queue(maxsize=10)
 proc = None
 temp_dir_to_clean = None
+temp_receive_dir = None
+current_paths = None  # Store original paths for multi-share
+current_text = None   # Store text for multi-share
+share_in_progress = False
 
 # ---------- Helpers (Optimized) ----------
 def log(msg, kind="info"):
@@ -106,6 +106,8 @@ def set_buttons(active):
     cancel_btn.config(state=tk.NORMAL if active else tk.DISABLED)
 
 def show_code(code):
+    import qrcode
+    from PIL import Image, ImageTk
     code_entry.config(state=tk.NORMAL)
     code_entry.delete(0, tk.END)
     code_entry.insert(0, code)
@@ -121,6 +123,9 @@ def show_code(code):
 def hide_code():
     code_frame.pack_forget()
     qr_label.pack_forget()
+    code_entry.config(state=tk.NORMAL)
+    code_entry.delete(0, tk.END)
+    code_entry.config(state="readonly")
 
 def copy_code():
     txt = code_entry.get()
@@ -133,9 +138,13 @@ def copy_code():
 
 copy_btn.config(command=copy_code)
 
+def prompt_share_again():
+    return messagebox.askyesno("Share Again", "Do you want to share with another person?")
+
 # ---------- Subprocess I/O (Optimized with Hidden Console) ----------
 def run_cmd(cmd, mode, downloads=None):
-    global proc
+    global proc, share_in_progress, temp_receive_dir
+    share_in_progress = True
     try:
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0  # Hide console on Windows
         proc = subprocess.Popen(
@@ -149,6 +158,7 @@ def run_cmd(cmd, mode, downloads=None):
         )
     except FileNotFoundError:
         q.put(("err", "magic-wormhole not installed (pip install magic-wormhole)"))
+        share_in_progress = False
         return
 
     q.put(("status","Connecting…"))
@@ -157,32 +167,54 @@ def run_cmd(cmd, mode, downloads=None):
         if not ln: continue
         low = ln.lower()
 
-        if "wormhole code" in low:
+        if "wormhole code" in low and share_in_progress:
             code = ln.split(":",1)[1].strip()
             q.put(("code", code)); continue
 
         if any(tok in low for tok in ("%","sending","bytes","progress")):
             q.put(("prog", ln)); continue
 
-        if mode=="recv" and "written to" in low:
-            match = re.search(r"written to (.+)", ln)
-            if match:
-                real_name = match.group(1).strip().strip("'\"")
-                real_dest = os.path.join(downloads, real_name)
-                q.put(("status", f"Saved to: {real_dest}"))
-            q.put(("prog", ln))
-            continue
-
         q.put(("dbg", ln))
 
     rc = proc.wait()
-    q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'})"))
+    share_in_progress = False
+    if mode == "recv":
+        if rc == 0 and temp_receive_dir:
+            import shutil
+            for item in os.listdir(temp_receive_dir):
+                source = os.path.join(temp_receive_dir, item)
+                dest = os.path.join(downloads, item)
+                if os.path.isfile(source):
+                    # For single files, overwrite if exists
+                    if os.path.exists(dest):
+                        os.remove(dest)
+                    shutil.move(source, dest)
+                    q.put(("status", f"Saved to: {dest}"))
+                else:
+                    # For bundles (directories), rename with _ddmmyyyy_HHMM if exists
+                    base = item
+                    if os.path.exists(dest):
+                        timestamp = time.strftime("%d%m%Y_%H%M")
+                        dest = os.path.join(downloads, f"{base}_{timestamp}")
+                    shutil.move(source, dest)
+                    q.put(("status", f"Saved to: {dest}"))
+            shutil.rmtree(temp_receive_dir)
+            temp_receive_dir = None
+            q.put(("dbg", "Download complete."))
+        elif temp_receive_dir:
+            import shutil
+            shutil.rmtree(temp_receive_dir)
+            temp_receive_dir = None
+    q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'}"))
 
 # ---------- Button actions (Optimized Calls) ----------
 def send_files():
-    global temp_dir_to_clean
+    import shutil
+    import tempfile
+    global temp_dir_to_clean, current_paths
     paths = filedialog.askopenfilenames()
     if not paths: return
+    current_paths = paths  # Store paths for multi-share
     total_size = sum(os.path.getsize(p) for p in paths)
     file_names = [os.path.basename(p) for p in paths]
     if len(paths) == 1:
@@ -203,18 +235,24 @@ def send_files():
     threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
 
 def send_message():
+    global current_text
     txt = simpledialog.askstring("Send Message", "Enter message to send:", parent=root)
     if not txt: return
+    current_text = txt  # Store text for multi-share
     status_var.set("Preparing message…")
     log(f"Sending message: {txt[:60]}{'…' if len(txt)>60 else ''}")
     set_buttons(True); hide_code(); progress_var.set("")
-    threading.Thread(target=run_cmd, args=(["wormhole","send","--text",txt.strip()],"send"), daemon=True).start()
+    cmd = ["wormhole", "send", "--text", txt.strip()]
+    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
 
 def receive():
+    global temp_receive_dir
     code = simpledialog.askstring("Receive", "Enter wormhole code:", parent=root)
     if not code: return
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     os.makedirs(downloads, exist_ok=True)
+    import tempfile
+    temp_receive_dir = tempfile.mkdtemp()
     original_cwd = os.getcwd()
 
     status_var.set("Connecting to receive…")
@@ -225,7 +263,7 @@ def receive():
 
     def run_with_chdir():
         try:
-            os.chdir(downloads)
+            os.chdir(temp_receive_dir)
             run_cmd(cmd, "recv", downloads=downloads)
         finally:
             os.chdir(original_cwd)
@@ -233,36 +271,75 @@ def receive():
     threading.Thread(target=run_with_chdir, daemon=True).start()
 
 def cancel():
-    global proc
+    global proc, temp_dir_to_clean, temp_receive_dir
     if proc and proc.poll() is None:
         proc.terminate()
         try: proc.wait(2)
         except subprocess.TimeoutExpired: proc.kill()
-    q.put(("err","Operation cancelled by user"))
+    q.put(("err", "Operation cancelled by user"))
+    hide_code()
+    if temp_dir_to_clean:
+        import shutil
+        shutil.rmtree(temp_dir_to_clean)
+        temp_dir_to_clean = None
+    if temp_receive_dir:
+        import shutil
+        shutil.rmtree(temp_receive_dir)
+        temp_receive_dir = None
+    set_buttons(False)
 
 # ---------- UI update loop (Optimized Interval) ----------
 def ui_pump():
-    global temp_dir_to_clean
+    global temp_dir_to_clean, current_paths, current_text
     try:
         while True:
             kind, payload = q.get_nowait()
-            if kind=="code":
-                show_code(payload); status_var.set("Share this code with recipient"); log(f"Generated code: {payload}")
-            elif kind=="prog":
+            if kind == "code":
+                show_code(payload)
+                status_var.set("Share this code with recipient")
+                log(f"Generated code: {payload}")
+            elif kind == "prog":
                 progress_var.set(payload)
                 if not progress_lab.winfo_ismapped(): progress_lab.pack()
-            elif kind=="status":
+            elif kind == "status":
                 status_var.set(payload)
-            elif kind=="err":
-                status_var.set("Error"); log(payload,"err")
-                messagebox.showerror("Error",payload); set_buttons(False); progress_lab.pack_forget()
-            elif kind=="done":
-                status_var.set(payload); log(payload, "ok" if payload.startswith("Success") else "err")
-                set_buttons(False); progress_lab.pack_forget()
-                if payload.startswith("Success") and temp_dir_to_clean:
-                    shutil.rmtree(temp_dir_to_clean)
-                    temp_dir_to_clean = None
-            elif kind=="dbg":
+            elif kind == "err":
+                status_var.set("Error")
+                log(payload, "err")
+                messagebox.showerror("Error", payload)
+                set_buttons(False)
+                progress_lab.pack_forget()
+            elif kind == "done":
+                status_var.set(payload)
+                log(payload, "ok" if payload.startswith("Success") else "err")
+                set_buttons(False)
+                progress_lab.pack_forget()
+                if payload.startswith("Success") and not share_in_progress:
+                    if current_paths or current_text:
+                        if prompt_share_again():
+                            if current_paths:
+                                import shutil
+                                import tempfile
+                                temp_parent = tempfile.mkdtemp()
+                                bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
+                                os.mkdir(bundle_dir)
+                                for path in current_paths:
+                                    shutil.copy(path, bundle_dir)
+                                cmd = ["wormhole", "send", bundle_dir]
+                                temp_dir_to_clean = temp_parent
+                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
+                            elif current_text:
+                                cmd = ["wormhole", "send", "--text", current_text.strip()]
+                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
+                        else:
+                            hide_code()
+                            current_paths = None
+                            current_text = None
+                            if temp_dir_to_clean:
+                                import shutil
+                                shutil.rmtree(temp_dir_to_clean)
+                                temp_dir_to_clean = None
+            elif kind == "dbg":
                 log(payload)
     except queue.Empty:
         pass
@@ -276,7 +353,7 @@ cancel_btn.config(command=cancel)
 root.bind('<Control-s>', lambda e: send_files())
 root.bind('<Control-m>', lambda e: send_message())
 root.bind('<Control-r>', lambda e: receive())
-root.bind('<Escape>',   lambda e: cancel() if cancel_btn['state']==tk.NORMAL else None)
+root.bind('<Escape>', lambda e: cancel() if cancel_btn['state'] == tk.NORMAL else None)
 
 root.after(50, ui_pump)
 root.protocol("WM_DELETE_WINDOW", root.quit)

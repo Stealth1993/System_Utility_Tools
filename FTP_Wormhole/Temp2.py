@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# magic-wormhole file-transfer GUI — fixed filename extraction
+# magic-wormhole file-transfer GUI — multiple file support with hidden subprocess
 # Date: July 23, 2025
+# Author: Santosh Jha (github: Stealth1993)
 
 import os
 import re
@@ -12,21 +13,23 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 import qrcode
 from PIL import Image, ImageTk
+import shutil
+import tempfile
 
-# ---------- Appearance ----------
-BG        = "#050608"
-FG_TITLE  = "#f00487"
-FG_BTN    = "#150303"
-BTN_BG    = "#A4C639"
-FG_STATUS = "#DADE74"
-FG_CODE   = "#FF6B6B"
-FONT      = ("Arial", 11)
+# ---------- Appearance (Optimized for Readability) ----------
+BG        = "#F5F5F5"
+FG_TITLE  = "#2C3E50"
+FG_BTN    = "#FFFFFF"
+BTN_BG    = "#3498DB"
+FG_STATUS = "#27AE60"
+FG_CODE   = "#E74C3C"
+FONT      = ("Arial", 12)
 
-# ---------- Main window setup ----------
+# ---------- Main window setup (Optimized Geometry) ----------
 root = tk.Tk()
 root.title("Magic-Wormhole Transfer")
 root.configure(bg=BG)
-root.geometry("720x560")
+root.geometry("760x600")
 
 canvas = tk.Canvas(root, bg=BG, highlightthickness=0)
 scroll = tk.Scrollbar(root, command=canvas.yview)
@@ -37,18 +40,17 @@ canvas.configure(yscrollcommand=scroll.set)
 canvas.pack(side="left", fill="both", expand=True)
 scroll.pack(side="right", fill="y")
 
-# ---------- Widgets ----------
+# ---------- Widgets (Optimized Layout) ----------
 tk.Label(holder, text="Magic-Wormhole File Transfer",
-         font=("Arial", 18, "bold"), bg=BG, fg=FG_TITLE).pack(pady=12)
+         font=("Arial", 16, "bold"), bg=BG, fg=FG_TITLE).pack(pady=10)
 
-btn_bar = tk.Frame(holder, bg=BG); btn_bar.pack(pady=8)
-send_file_btn = tk.Button(btn_bar, text="Send File", width=10, bg=BTN_BG, fg=FG_BTN)
-send_text_btn = tk.Button(btn_bar, text="Send Message", width=12, bg=BTN_BG, fg=FG_BTN)
-recv_btn      = tk.Button(btn_bar, text="Receive", width=10, bg=BTN_BG, fg=FG_BTN)
-cancel_btn    = tk.Button(btn_bar, text="Cancel", width=10, bg="#FF4444",
-                          fg="white", state=tk.DISABLED)
-for i,b in enumerate((send_file_btn, send_text_btn, recv_btn, cancel_btn)):
-    b.grid(row=0, column=i, padx=6, pady=4)
+btn_bar = tk.Frame(holder, bg=BG); btn_bar.pack(pady=6)
+send_file_btn = tk.Button(btn_bar, text="Send Files", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+send_text_btn = tk.Button(btn_bar, text="Send Message", width=12, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+recv_btn      = tk.Button(btn_bar, text="Receive", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+cancel_btn    = tk.Button(btn_bar, text="Cancel", width=10, bg="#E74C3C", fg="white", state=tk.DISABLED, font=("Arial", 12, "bold"))
+for i, b in enumerate((send_file_btn, send_text_btn, recv_btn, cancel_btn)):
+    b.grid(row=0, column=i, padx=4, pady=2)
 
 status_var = tk.StringVar(value="Ready")
 tk.Label(holder, textvariable=status_var, font=FONT, bg=BG, fg=FG_STATUS).pack()
@@ -59,32 +61,41 @@ progress_lab = tk.Label(holder, textvariable=progress_var,
 
 code_frame = tk.Frame(holder, bg=BG)
 tk.Label(code_frame, text="🔑 Code (to share):",
-         font=("Arial", 12, "bold"), bg=BG, fg=FG_TITLE).pack(side="left", padx=(0,4))
-code_entry = tk.Entry(code_frame, width=28,
-                      font=("Courier", 14, "bold"), bg="#1a1a1a", fg=FG_CODE,
+         font=("Arial", 12, "bold"), bg=BG, fg=FG_TITLE).pack(side="left", padx=(0,2))
+code_entry = tk.Entry(code_frame, width=25,
+                      font=("Courier", 12, "bold"), bg="#ECF0F1", fg=FG_CODE,
                       justify="center", relief="flat", state="readonly")
-copy_btn = tk.Button(code_frame, text="Copy", bg="#4CAF50", fg="white")
+copy_btn = tk.Button(code_frame, text="Copy", bg="#2ECC71", fg="white")
 qr_label = tk.Label(holder, bg=BG)
 
-msg_box = tk.Text(holder, height=6, wrap=tk.WORD,
-                  bg="#1a1a1a", fg=FG_STATUS, font=FONT, state=tk.DISABLED)
-msg_box.pack(padx=12, pady=10, fill="both", expand=True)
+msg_box = tk.Text(holder, height=5, wrap=tk.WORD,
+                  bg="#ECF0F1", fg=FG_STATUS, font=FONT, state=tk.DISABLED)
+msg_box.pack(padx=10, pady=8, fill="both", expand=True)
 
-exit_btn = tk.Button(holder, text="Exit", bg="#FF6B6B", fg="white",
-                     width=10, command=root.quit)
-exit_btn.pack(pady=10)
+exit_btn = tk.Button(holder, text="Exit", bg="#E74C3C", fg="white",
+                     width=10, command=root.quit, font=("Arial", 12, "bold"))
+exit_btn.pack(pady=8)
+
+# ---------- Footer ----------
+footer_frame = tk.Frame(holder, bg=BG)
+footer_frame.pack(fill="x", pady=5)
+version_label = tk.Label(footer_frame, text="V1.0.2", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+version_label.pack(side="left", padx=10)
+dev_label = tk.Label(footer_frame, text="Dev: Santosh Jha (GitHub: Stealth1993)", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+dev_label.pack(side="right", padx=10)
 
 # ---------- Globals ----------
-q = queue.Queue()
+q = queue.Queue(maxsize=10)
 proc = None
+temp_dir_to_clean = None
 
-# ---------- Helpers ----------
+# ---------- Helpers (Optimized) ----------
 def log(msg, kind="info"):
     msg_box.config(state=tk.NORMAL)
     tag = "err" if kind=="err" else "ok"
     msg_box.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {msg}\n", tag)
-    msg_box.tag_config("err", foreground="#FF6B6B")
-    msg_box.tag_config("ok",  foreground="#4CAF50")
+    msg_box.tag_config("err", foreground="#E74C3C")
+    msg_box.tag_config("ok",  foreground="#27AE60")
     msg_box.config(state=tk.DISABLED)
     msg_box.see(tk.END)
 
@@ -99,13 +110,13 @@ def show_code(code):
     code_entry.delete(0, tk.END)
     code_entry.insert(0, code)
     code_entry.config(state="readonly")
-    code_frame.pack(pady=8)
+    code_frame.pack(pady=6)
     code_entry.pack(side="left")
-    copy_btn.pack(side="left", padx=6)
-    img = qrcode.make(code).resize((190, 190), Image.Resampling.LANCZOS)
+    copy_btn.pack(side="left", padx=4)
+    img = qrcode.make(code).resize((180, 180), Image.Resampling.LANCZOS)
     qr_label.img = ImageTk.PhotoImage(img)
     qr_label.config(image=qr_label.img)
-    qr_label.pack(pady=4)
+    qr_label.pack(pady=2)
 
 def hide_code():
     code_frame.pack_forget()
@@ -116,25 +127,25 @@ def copy_code():
     if not txt: return
     root.clipboard_clear()
     root.clipboard_append(txt)
-    copy_btn.config(text="✓ Copied", bg="#2E7D32")
-    root.after(2000, lambda: copy_btn.config(text="Copy", bg="#4CAF50"))
+    copy_btn.config(text="✓ Copied", bg="#27AE60")
+    root.after(1500, lambda: copy_btn.config(text="Copy", bg="#2ECC71"))
     log("Code copied to clipboard")
 
 copy_btn.config(command=copy_code)
 
-# ---------- Subprocess I/O ----------
+# ---------- Subprocess I/O (Optimized with Hidden Console) ----------
 def run_cmd(cmd, mode, downloads=None):
     global proc
     try:
-        flags = subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0
+        flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0  # Hide console on Windows
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,
-            creationflags=flags
+            bufsize=8192,
+            creationflags=flags  # Apply the flag to hide the console
         )
     except FileNotFoundError:
         q.put(("err", "magic-wormhole not installed (pip install magic-wormhole)"))
@@ -146,16 +157,13 @@ def run_cmd(cmd, mode, downloads=None):
         if not ln: continue
         low = ln.lower()
 
-        # Code generation
         if "wormhole code" in low:
             code = ln.split(":",1)[1].strip()
             q.put(("code", code)); continue
 
-        # Progress updates
         if any(tok in low for tok in ("%","sending","bytes","progress")):
             q.put(("prog", ln)); continue
 
-        # In receive mode: catch the real filename on final write
         if mode=="recv" and "written to" in low:
             match = re.search(r"written to (.+)", ln)
             if match:
@@ -165,21 +173,34 @@ def run_cmd(cmd, mode, downloads=None):
             q.put(("prog", ln))
             continue
 
-        # General debug
         q.put(("dbg", ln))
 
     rc = proc.wait()
-    q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'}"))
+    q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'})"))
 
-# ---------- Button actions ----------
-def send_file():
-    path = filedialog.askopenfilename()
-    if not path: return
-    name = os.path.basename(path); size = os.path.getsize(path)
-    status_var.set(f"Preparing: {name}")
-    log(f"Sending file: {name} ({size:,} bytes)")
+# ---------- Button actions (Optimized Calls) ----------
+def send_files():
+    global temp_dir_to_clean
+    paths = filedialog.askopenfilenames()
+    if not paths: return
+    total_size = sum(os.path.getsize(p) for p in paths)
+    file_names = [os.path.basename(p) for p in paths]
+    if len(paths) == 1:
+        cmd = ["wormhole", "send", paths[0]]
+        status_var.set(f"Preparing: {file_names[0]}")
+        log(f"Sending file: {file_names[0]} ({total_size:,} bytes)")
+    else:
+        temp_parent = tempfile.mkdtemp()
+        bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
+        os.mkdir(bundle_dir)
+        for path in paths:
+            shutil.copy(path, bundle_dir)
+        cmd = ["wormhole", "send", bundle_dir]
+        temp_dir_to_clean = temp_parent
+        status_var.set(f"Preparing bundle of {len(paths)} files")
+        log(f"Sending bundle: {', '.join(file_names[:3])}{'...' if len(file_names) > 3 else ''} (Total: {total_size:,} bytes)")
     set_buttons(True); hide_code(); progress_var.set("")
-    threading.Thread(target=run_cmd, args=(["wormhole","send",path],"send"), daemon=True).start()
+    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
 
 def send_message():
     txt = simpledialog.askstring("Send Message", "Enter message to send:", parent=root)
@@ -215,15 +236,16 @@ def cancel():
     global proc
     if proc and proc.poll() is None:
         proc.terminate()
-        try: proc.wait(3)
+        try: proc.wait(2)
         except subprocess.TimeoutExpired: proc.kill()
     q.put(("err","Operation cancelled by user"))
 
-# ---------- UI update loop ----------
+# ---------- UI update loop (Optimized Interval) ----------
 def ui_pump():
+    global temp_dir_to_clean
     try:
         while True:
-            kind,payload = q.get_nowait()
+            kind, payload = q.get_nowait()
             if kind=="code":
                 show_code(payload); status_var.set("Share this code with recipient"); log(f"Generated code: {payload}")
             elif kind=="prog":
@@ -237,22 +259,25 @@ def ui_pump():
             elif kind=="done":
                 status_var.set(payload); log(payload, "ok" if payload.startswith("Success") else "err")
                 set_buttons(False); progress_lab.pack_forget()
+                if payload.startswith("Success") and temp_dir_to_clean:
+                    shutil.rmtree(temp_dir_to_clean)
+                    temp_dir_to_clean = None
             elif kind=="dbg":
                 log(payload)
     except queue.Empty:
         pass
-    root.after(80, ui_pump)
+    root.after(50, ui_pump)
 
 # ---------- Wire up events ----------
-send_file_btn.config(command=send_file)
+send_file_btn.config(command=send_files)
 send_text_btn.config(command=send_message)
 recv_btn.config(command=receive)
 cancel_btn.config(command=cancel)
-root.bind('<Control-s>', lambda e: send_file())
+root.bind('<Control-s>', lambda e: send_files())
 root.bind('<Control-m>', lambda e: send_message())
 root.bind('<Control-r>', lambda e: receive())
 root.bind('<Escape>',   lambda e: cancel() if cancel_btn['state']==tk.NORMAL else None)
 
-root.after(100, ui_pump)
+root.after(50, ui_pump)
 root.protocol("WM_DELETE_WINDOW", root.quit)
 root.mainloop()
