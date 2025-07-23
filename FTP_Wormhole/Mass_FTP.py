@@ -76,6 +76,14 @@ exit_btn = tk.Button(holder, text="Exit", bg="#E74C3C", fg="white",
                      width=10, command=root.quit, font=("Arial", 12, "bold"))
 exit_btn.pack(pady=8)
 
+# ---------- Footer ----------
+footer_frame = tk.Frame(holder, bg=BG)
+footer_frame.pack(fill="x", pady=5)
+version_label = tk.Label(footer_frame, text="V1.0.2", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+version_label.pack(side="left", padx=10)
+dev_label = tk.Label(footer_frame, text="Dev: Santosh Jha (GitHub: Stealth1993)", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+dev_label.pack(side="right", padx=10)
+
 # ---------- Globals ----------
 q = queue.Queue(maxsize=10)
 proc = None
