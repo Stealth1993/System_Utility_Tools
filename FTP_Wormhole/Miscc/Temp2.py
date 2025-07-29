@@ -37,7 +37,7 @@ canvas.pack(side="left", fill="both", expand=True)
 scroll.pack(side="right", fill="y")
 
 # ---------- Widgets (Optimized Layout) ----------
-tk.Label(holder, text="Magic-Wormhole File Transfer",
+tk.Label(holder, text="Magic-Wormhole Transfer",
          font=("Arial", 16, "bold"), bg=BG, fg=FG_TITLE).pack(pady=10)
 
 btn_bar = tk.Frame(holder, bg=BG); btn_bar.pack(pady=6)
@@ -80,10 +80,11 @@ version_label.pack(side="left", padx=10)
 dev_label = tk.Label(footer_frame, text="Dev: Santosh Jha (GitHub: Stealth1993)", font=("Arial", 10), bg=BG, fg=FG_TITLE)
 dev_label.pack(side="right", padx=10)
 
-# ---------- Open Folder Button (Optional) ----------
-open_folder_btn = tk.Button(holder, text="Open folder to view file(s)", bg=BTN_BG, fg=FG_BTN, font=("Arial", 10),
-                            command=lambda: os.startfile(os.path.join(os.path.expanduser("~"), "Downloads")))
-open_folder_btn.pack(pady=2)  # Initially hidden, shown after receive
+# ---------- Temporary Open Folder Label ----------
+open_folder_label = tk.Label(holder, text="Open folder to view file(s)", fg=FG_STATUS, font=("Arial", 10, "underline"),
+                            cursor="hand2", bg=BG)
+open_folder_label.pack_forget()  # Initially hidden
+open_folder_label.bind("<Button-1>", lambda e: os.startfile(os.path.join(os.path.expanduser("~"), "Downloads")))
 
 # ---------- Globals ----------
 q = queue.Queue(maxsize=10)
@@ -93,6 +94,8 @@ temp_receive_dir = None
 current_paths = None  # Store original paths for multi-share
 current_text = None   # Store text for multi-share
 share_in_progress = False
+last_operation_mode = None  # Track last operation mode (send or recv)
+cancel_count = 0  # Track number of cancel clicks
 
 # ---------- Helpers (Optimized) ----------
 def log(msg, kind="info"):
@@ -108,9 +111,10 @@ def set_buttons(active):
     state = tk.DISABLED if active else tk.NORMAL
     for btn in (send_file_btn, send_text_btn, recv_btn):
         btn.config(state=state)
-    cancel_btn.config(state=tk.NORMAL if active else tk.DISABLED)
+    cancel_btn.config(state=tk.NORMAL)  # Always keep Cancel enabled
 
 def show_code(code):
+    global last_operation_mode
     import qrcode
     from PIL import Image, ImageTk
     log(f"Generating QR for code: {code}", "ok")  # Debug log to verify code
@@ -127,6 +131,7 @@ def show_code(code):
     qr_label.img = ImageTk.PhotoImage(img)
     qr_label.config(image=qr_label.img)
     qr_label.pack(pady=2)
+    last_operation_mode = "send"  # Set mode for send operations
 
 def hide_code():
     code_frame.pack_forget()
@@ -134,7 +139,7 @@ def hide_code():
     code_entry.config(state=tk.NORMAL)
     code_entry.delete(0, tk.END)
     code_entry.config(state="readonly")
-    open_folder_btn.pack_forget()  # Hide open folder button when resetting
+    open_folder_label.pack_forget()  # Hide open folder label when resetting
 
 def copy_code():
     txt = code_entry.get()
@@ -152,7 +157,7 @@ def prompt_share_again():
 
 # ---------- Subprocess I/O (Optimized with Hidden Console) ----------
 def run_cmd(cmd, mode, downloads=None):
-    global proc, share_in_progress, temp_receive_dir
+    global proc, share_in_progress, temp_receive_dir, current_paths, current_text, temp_dir_to_clean, last_operation_mode
     share_in_progress = True
     try:
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0  # Hide console on Windows
@@ -188,39 +193,43 @@ def run_cmd(cmd, mode, downloads=None):
 
     rc = proc.wait()
     share_in_progress = False
-    if mode == "recv":
-        if rc == 0 and temp_receive_dir:
-            import shutil
-            for item in os.listdir(temp_receive_dir):
-                source = os.path.join(temp_receive_dir, item)
-                dest = os.path.join(downloads, item)
-                if os.path.isfile(source):
-                    # For single files, overwrite if exists
-                    if os.path.exists(dest):
-                        os.remove(dest)
-                    shutil.move(source, dest)
-                else:
-                    # For bundles (directories), rename with _ddmmyyyy_HHMM if exists
-                    base = item
-                    if os.path.exists(dest):
-                        timestamp = time.strftime("%d%m%Y_%H%M")
-                        dest = os.path.join(downloads, f"{base}_{timestamp}")
-                    shutil.move(source, dest)
-            shutil.rmtree(temp_receive_dir)
-            temp_receive_dir = None
-            q.put(("dbg", "Download complete."))
-            open_folder_btn.pack(pady=2)  # Show open folder button after receive
-        elif temp_receive_dir:
-            import shutil
-            shutil.rmtree(temp_receive_dir)
-            temp_receive_dir = None
+    if mode == "recv" and rc == 0:
+        import shutil
+        import time
+        max_attempts = 10  # Increased attempts
+        attempt = 0
+        while attempt < max_attempts:
+            try:
+                for item in os.listdir(temp_receive_dir):
+                    source = os.path.join(temp_receive_dir, item)
+                    dest = os.path.join(downloads, item)
+                    if os.path.isfile(source):
+                        # For single files, overwrite if exists
+                        if os.path.exists(dest):
+                            os.remove(dest)
+                        shutil.move(source, dest)
+                    else:
+                        # For bundles (directories), rename with _ddmmyyyy_HHMM if exists
+                        base = item
+                        if os.path.exists(dest):
+                            timestamp = time.strftime("%d%m%Y_%H%M")
+                            dest = os.path.join(downloads, f"{base}_{timestamp}")
+                        shutil.move(source, dest)
+                break  # Exit loop if successful
+            except PermissionError:
+                attempt += 1
+                time.sleep(2)  # Increased delay to 2 seconds
+                if attempt == max_attempts:
+                    log("Failed to move files due to permission error after retries", "err")
+        q.put(("dbg", "Download complete."))
     q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'}"))
+    last_operation_mode = mode  # Update last operation mode
 
 # ---------- Button actions (Optimized Calls) ----------
 def send_files():
+    global temp_dir_to_clean, current_paths
     import shutil
     import tempfile
-    global temp_dir_to_clean, current_paths
     paths = filedialog.askopenfilenames()
     if not paths: return
     current_paths = paths  # Store paths for multi-share
@@ -241,7 +250,7 @@ def send_files():
         status_var.set(f"Preparing bundle of {len(paths)} files")
         log(f"Sending bundle: {', '.join(file_names[:3])}{'...' if len(file_names) > 3 else ''} (Total: {total_size:,} bytes)")
     set_buttons(True); hide_code(); progress_var.set("")
-    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
+    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
 
 def send_message():
     global current_text
@@ -252,7 +261,7 @@ def send_message():
     log(f"Sending message: {txt[:60]}{'…' if len(txt)>60 else ''}")
     set_buttons(True); hide_code(); progress_var.set("")
     cmd = ["wormhole", "send", "--text", txt.strip()]
-    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
+    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
 
 def receive():
     global temp_receive_dir
@@ -280,26 +289,38 @@ def receive():
     threading.Thread(target=run_with_chdir, daemon=True).start()
 
 def cancel():
-    global proc, temp_dir_to_clean, temp_receive_dir
+    global proc, temp_dir_to_clean, temp_receive_dir, cancel_count
     if proc and proc.poll() is None:
         proc.terminate()
-        try: proc.wait(2)
-        except subprocess.TimeoutExpired: proc.kill()
-    q.put(("err", "Operation cancelled by user"))
-    hide_code()
-    if temp_dir_to_clean:
-        import shutil
-        shutil.rmtree(temp_dir_to_clean)
-        temp_dir_to_clean = None
-    if temp_receive_dir:
-        import shutil
-        shutil.rmtree(temp_receive_dir)
-        temp_receive_dir = None
-    set_buttons(False)
+        try:
+            proc.wait(2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log("Operation cancelled by user", "ok")
+        cancel_count = 0  # Reset count after first cancel
+    else:
+        cancel_count += 1
+        if cancel_count == 2:
+            msg_box.config(state=tk.NORMAL)
+            msg_box.delete(1.0, tk.END)  # Clear message box
+            status_var.set("Ready")  # Reset status
+            hide_code()  # Reset UI
+            current_paths = None
+            current_text = None
+            if temp_dir_to_clean:
+                import shutil
+                shutil.rmtree(temp_dir_to_clean)
+                temp_dir_to_clean = None
+            if temp_receive_dir:
+                import shutil
+                shutil.rmtree(temp_receive_dir)
+                temp_receive_dir = None
+            cancel_count = 0  # Reset count after second cancel
+    set_buttons(False)  # Ensure buttons are enabled after cancel
 
 # ---------- UI update loop (Optimized Interval) ----------
 def ui_pump():
-    global temp_dir_to_clean, current_paths, current_text
+    global temp_dir_to_clean, current_paths, current_text, temp_receive_dir
     try:
         while True:
             kind, payload = q.get_nowait()
@@ -321,10 +342,10 @@ def ui_pump():
             elif kind == "done":
                 status_var.set(payload)
                 log(payload, "ok" if payload.startswith("Success") else "err")
-                set_buttons(False)
+                set_buttons(False)  # Re-enable all buttons, including Cancel, after operation
                 progress_lab.pack_forget()
                 if payload.startswith("Success") and not share_in_progress:
-                    if current_paths or current_text:
+                    if last_operation_mode == "send" and (current_paths or current_text):  # Only prompt if send data exists and it was a send operation
                         if prompt_share_again():
                             if current_paths:
                                 import shutil
@@ -336,20 +357,18 @@ def ui_pump():
                                     shutil.copy(path, bundle_dir)
                                 cmd = ["wormhole", "send", bundle_dir]
                                 temp_dir_to_clean = temp_parent
-                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
+                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
+                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
                             elif current_text:
                                 cmd = ["wormhole", "send", "--text", current_text.strip()]
-                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
-                        else:
-                            hide_code()
-                            current_paths = None
-                            current_text = None
-                            if temp_dir_to_clean:
-                                import shutil
-                                shutil.rmtree(temp_dir_to_clean)
-                                temp_dir_to_clean = None
+                                temp_dir_to_clean = None  # No temp dir for text
+                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
+                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
             elif kind == "dbg":
                 log(payload)
+                if payload == "Download complete.":
+                    open_folder_label.pack(pady=2)  # Show open folder label after receive
+                    root.after(10000, open_folder_label.pack_forget)  # Hide after 10 seconds
     except queue.Empty:
         pass
     root.after(50, ui_pump)

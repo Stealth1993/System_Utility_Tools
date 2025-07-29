@@ -94,6 +94,7 @@ temp_receive_dir = None
 current_paths = None  # Store original paths for multi-share
 current_text = None   # Store text for multi-share
 share_in_progress = False
+cancel_count = 0  # Track number of cancel clicks
 
 # ---------- Helpers (Optimized) ----------
 def log(msg, kind="info"):
@@ -284,22 +285,35 @@ def receive():
     threading.Thread(target=run_with_chdir, daemon=True).start()
 
 def cancel():
-    global proc, temp_dir_to_clean, temp_receive_dir
+    global proc, temp_dir_to_clean, temp_receive_dir, cancel_count
     if proc and proc.poll() is None:
         proc.terminate()
-        try: proc.wait(2)
-        except subprocess.TimeoutExpired: proc.kill()
-    q.put(("err", "Operation cancelled by user"))
-    hide_code()
-    if temp_dir_to_clean:
-        import shutil
-        shutil.rmtree(temp_dir_to_clean)
-        temp_dir_to_clean = None
-    if temp_receive_dir:
-        import shutil
-        shutil.rmtree(temp_receive_dir)
-        temp_receive_dir = None
-    set_buttons(False)
+        try:
+            proc.wait(2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log("Operation cancelled by user", "ok")
+        cancel_count = 0  # Reset count after first cancel
+    else:
+        cancel_count += 1
+        if cancel_count == 2:
+            msg_box.config(state=tk.NORMAL)
+            msg_box.delete(1.0, tk.END)  # Clear message box
+            status_var.set("Ready")  # Reset status
+            msg_box.config(state=tk.DISABLED)
+            hide_code()  # Reset UI
+            current_paths = None
+            current_text = None
+            if temp_dir_to_clean:
+                import shutil
+                shutil.rmtree(temp_dir_to_clean)
+                temp_dir_to_clean = None
+            if temp_receive_dir:
+                import shutil
+                shutil.rmtree(temp_receive_dir)
+                temp_receive_dir = None
+            cancel_count = 0  # Reset count after second cancel
+    set_buttons(False)  # Ensure buttons are enabled after cancel
 
 # ---------- UI update loop (Optimized Interval) ----------
 def ui_pump():
