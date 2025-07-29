@@ -10,7 +10,12 @@ import queue
 import threading
 import subprocess
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, Toplevel, Button, Entry
+import cv2
+from pyzbar.pyzbar import decode
+import shutil
+import numpy as np
+import tempfile  # Moved to top-level import
 
 # ---------- Appearance (Optimized for Readability) ----------
 BG        = "#F5F5F5"
@@ -155,6 +160,30 @@ copy_btn.config(command=copy_code)
 def prompt_share_again():
     return messagebox.askyesno("Share Again", "Do you want to share with another person?")
 
+def scan_qr():
+    cap = cv2.VideoCapture(0)  # Open default camera
+    if not cap.isOpened():
+        messagebox.showerror("Error", "Could not open camera.")
+        return None
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        decoded_objects = decode(frame)
+        for obj in decoded_objects:
+            code = obj.data.decode('utf-8')
+            if code.startswith("wormhole-transfer:"):
+                code = code.replace("wormhole-transfer:", "")
+                cap.release()
+                cv2.destroyAllWindows()
+                return code
+        cv2.imshow("Scan QR Code", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+    return None
+
 # ---------- Subprocess I/O (Optimized with Hidden Console) ----------
 def run_cmd(cmd, mode, downloads=None):
     global proc, share_in_progress, temp_receive_dir, current_paths, current_text, temp_dir_to_clean, last_operation_mode
@@ -228,8 +257,6 @@ def run_cmd(cmd, mode, downloads=None):
 # ---------- Button actions (Optimized Calls) ----------
 def send_files():
     global temp_dir_to_clean, current_paths
-    import shutil
-    import tempfile
     paths = filedialog.askopenfilenames()
     if not paths: return
     current_paths = paths  # Store paths for multi-share
@@ -265,28 +292,69 @@ def send_message():
 
 def receive():
     global temp_receive_dir
-    code = simpledialog.askstring("Receive", "Enter wormhole code:", parent=root)
-    if not code: return
-    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-    os.makedirs(downloads, exist_ok=True)
-    import tempfile
-    temp_receive_dir = tempfile.mkdtemp()
-    original_cwd = os.getcwd()
+    # Create custom dialog for receive
+    receive_dialog = Toplevel(root)
+    receive_dialog.title("Receive File")
+    receive_dialog.configure(bg=BG)
+    receive_dialog.geometry("300x150")
 
-    status_var.set("Connecting to receive…")
-    log("Receiving into Downloads folder")
-    set_buttons(True); hide_code(); progress_var.set("")
+    # Code input field
+    code_label = tk.Label(receive_dialog, text="Enter Wormhole Code:", font=FONT, bg=BG, fg=FG_TITLE)
+    code_label.pack(pady=10)
+    code_entry = Entry(receive_dialog, width=25, font=FONT, bg="#ECF0F1", fg=FG_CODE)
+    code_entry.pack(pady=5)
 
-    cmd = ["wormhole","receive","--accept-file",code]
+    # Get button
+    def get_code():
+        code = code_entry.get().strip()
+        if code:
+            receive_dialog.destroy()
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            os.makedirs(downloads, exist_ok=True)
+            temp_receive_dir = tempfile.mkdtemp()
+            original_cwd = os.getcwd()
+            status_var.set("Connecting to receive…")
+            log("Receiving into Downloads folder")
+            set_buttons(True); hide_code(); progress_var.set("")
+            cmd = ["wormhole", "receive", "--accept-file", code]
+            def run_with_chdir():
+                try:
+                    os.chdir(temp_receive_dir)
+                    run_cmd(cmd, "recv", downloads=downloads)
+                finally:
+                    os.chdir(original_cwd)
+            threading.Thread(target=run_with_chdir, daemon=True).start()
 
-    def run_with_chdir():
-        try:
-            os.chdir(temp_receive_dir)
-            run_cmd(cmd, "recv", downloads=downloads)
-        finally:
-            os.chdir(original_cwd)
+    get_btn = Button(receive_dialog, text="Get", command=get_code, bg=BTN_BG, fg=FG_BTN, font=FONT)
+    get_btn.pack(pady=5)
 
-    threading.Thread(target=run_with_chdir, daemon=True).start()
+    # Receive by QR button
+    def receive_by_qr():
+        code = scan_qr()
+        if code:
+            receive_dialog.destroy()
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            os.makedirs(downloads, exist_ok=True)
+            temp_receive_dir = tempfile.mkdtemp()
+            original_cwd = os.getcwd()
+            status_var.set("Connecting to receive…")
+            log("Receiving into Downloads folder")
+            set_buttons(True); hide_code(); progress_var.set("")
+            cmd = ["wormhole", "receive", "--accept-file", code]
+            def run_with_chdir():
+                try:
+                    os.chdir(temp_receive_dir)
+                    run_cmd(cmd, "recv", downloads=downloads)
+                finally:
+                    os.chdir(original_cwd)
+            threading.Thread(target=run_with_chdir, daemon=True).start()
+
+    qr_btn = Button(receive_dialog, text="Receive by QR", command=receive_by_qr, bg=BTN_BG, fg=FG_BTN, font=FONT)
+    qr_btn.pack(pady=5)
+
+    receive_dialog.transient(root)
+    receive_dialog.grab_set()
+    root.wait_window(receive_dialog)
 
 def cancel():
     global proc, temp_dir_to_clean, temp_receive_dir, cancel_count
@@ -349,7 +417,6 @@ def ui_pump():
                         if prompt_share_again():
                             if current_paths:
                                 import shutil
-                                import tempfile
                                 temp_parent = tempfile.mkdtemp()
                                 bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
                                 os.mkdir(bundle_dir)
