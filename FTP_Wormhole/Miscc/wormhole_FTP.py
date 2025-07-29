@@ -1,213 +1,388 @@
-# magic-wormhole file transfer GUI application
-# This application allows users to send files and messages using the magic-wormhole protocol.
+#!/usr/bin/env python3
+# magic-wormhole file-transfer GUI — multiple file support with hidden subprocess and multi-share
+# Date: July 30, 2025
+# Author: Santosh Jha (github: Stealth1993)
+
+import os
+import re
+import time
+import queue
+import threading
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
-import threading
-import queue
-import subprocess
-import qrcode
-from PIL import Image, ImageTk
 
-# Color definitions
-bg_color = "#050608"      # Dark background
-text_color = "#f00487"    # Pink text
-button_bg = "#A4C639"     # Light green for buttons
-button_fg = "#150303"     # Button text color
-variable_fg = "#DADE74"   # Yellow-green for status and messages
+# ---------- Appearance (Optimized for Readability) ----------
+BG        = "#F5F5F5"
+FG_TITLE  = "#2C3E50"
+FG_BTN    = "#FFFFFF"
+BTN_BG    = "#3498DB"
+FG_STATUS = "#27AE60"
+FG_CODE   = "#E74C3C"
+FONT      = ("Arial", 12)
 
-# Create main window
+# ---------- Main window setup (Optimized Geometry) ----------
 root = tk.Tk()
-root.title("File Transfer using Magic Wormhole")
-root.configure(bg=bg_color)
-root.geometry("600x400")
+root.title("Magic-Wormhole Transfer")
+root.configure(bg=BG)
+root.geometry("760x600")
 
-# Main frame
-main_frame = tk.Frame(root, bg=bg_color)
-main_frame.pack(expand=True, fill='both', padx=20, pady=20)
+canvas = tk.Canvas(root, bg=BG, highlightthickness=0)
+scroll = tk.Scrollbar(root, command=canvas.yview)
+holder = tk.Frame(canvas, bg=BG)
+holder.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+canvas.create_window((0, 0), window=holder, anchor="nw")
+canvas.configure(yscrollcommand=scroll.set)
+canvas.pack(side="left", fill="both", expand=True)
+scroll.pack(side="right", fill="y")
 
-# Title label
-title_label = tk.Label(main_frame, text="File Transfer", font=("Arial", 16), bg=bg_color, fg=text_color)
-title_label.pack(pady=10)
+# ---------- Widgets (Optimized Layout) ----------
+tk.Label(holder, text="Magic-Wormhole Transfer",
+         font=("Arial", 16, "bold"), bg=BG, fg=FG_TITLE).pack(pady=10)
 
-# Button frame
-button_frame = tk.Frame(main_frame, bg=bg_color)
-button_frame.pack(pady=10)
+btn_bar = tk.Frame(holder, bg=BG); btn_bar.pack(pady=6)
+send_file_btn = tk.Button(btn_bar, text="Send Files", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+send_text_btn = tk.Button(btn_bar, text="Send Message", width=12, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+recv_btn      = tk.Button(btn_bar, text="Receive", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
+cancel_btn    = tk.Button(btn_bar, text="Cancel", width=10, bg="#E74C3C", fg="white", state=tk.DISABLED, font=("Arial", 12, "bold"))
+for i, b in enumerate((send_file_btn, send_text_btn, recv_btn, cancel_btn)):
+    b.grid(row=0, column=i, padx=4, pady=2)
 
-# Buttons
-send_file_button = tk.Button(button_frame, text="Send File", bg=button_bg, fg=button_fg, command=lambda: send_file())
-send_file_button.grid(row=0, column=0, padx=5)
+status_var = tk.StringVar(value="Ready")
+tk.Label(holder, textvariable=status_var, font=FONT, bg=BG, fg=FG_STATUS).pack()
 
-send_message_button = tk.Button(button_frame, text="Send Message", bg=button_bg, fg=button_fg, command=lambda: send_message())
-send_message_button.grid(row=0, column=1, padx=5)
+progress_var = tk.StringVar()
+progress_lab = tk.Label(holder, textvariable=progress_var,
+                        font=("Courier", 10), bg=BG, fg=FG_STATUS)
 
-receive_button = tk.Button(button_frame, text="Receive", bg=button_bg, fg=button_fg, command=lambda: receive_file())
-receive_button.grid(row=0, column=2, padx=5)
+code_frame = tk.Frame(holder, bg=BG)
+tk.Label(code_frame, text="🔑 Code (to share):",
+         font=("Arial", 12, "bold"), bg=BG, fg=FG_TITLE).pack(side="left", padx=(0,2))
+code_entry = tk.Entry(code_frame, width=25,
+                      font=("Courier", 12, "bold"), bg="#ECF0F1", fg=FG_CODE,
+                      justify="center", relief="flat", state="readonly")
+copy_btn = tk.Button(code_frame, text="Copy", bg="#2ECC71", fg="white")
+qr_label = tk.Label(holder, bg=BG)
 
-cancel_button = tk.Button(button_frame, text="Cancel", bg=button_bg, fg=button_fg, command=lambda: cancel_operation(), state=tk.DISABLED)
-cancel_button.grid(row=0, column=3, padx=5)
+msg_box = tk.Text(holder, height=5, wrap=tk.WORD,
+                  bg="#ECF0F1", fg=FG_STATUS, font=FONT, state=tk.DISABLED)
+msg_box.pack(padx=10, pady=8, fill="both", expand=True)
 
-# Status frame
-status_frame = tk.Frame(main_frame, bg=bg_color)
-status_frame.pack(pady=5)
+exit_btn = tk.Button(holder, text="Exit", bg="#E74C3C", fg="white",
+                     width=10, command=root.quit, font=("Arial", 12, "bold"))
+exit_btn.pack(pady=8)
 
-status_label = tk.Label(status_frame, text="Ready", bg=bg_color, fg=variable_fg)
-status_label.pack()
+# ---------- Footer ----------
+footer_frame = tk.Frame(holder, bg=BG)
+footer_frame.pack(fill="x", pady=5)
+version_label = tk.Label(footer_frame, text="V1.0.2", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+version_label.pack(side="left", padx=10)
+dev_label = tk.Label(footer_frame, text="Dev: Santosh Jha (GitHub: Stealth1993)", font=("Arial", 10), bg=BG, fg=FG_TITLE)
+dev_label.pack(side="right", padx=10)
 
-code_label = tk.Label(status_frame, text="", bg=bg_color, fg=variable_fg)
-code_label.pack()
+# ---------- Temporary Open Folder Label ----------
+open_folder_label = tk.Label(holder, text="Open folder to view file(s)", fg=FG_STATUS, font=("Arial", 10, "underline"),
+                            cursor="hand2", bg=BG)
+open_folder_label.pack_forget()  # Initially hidden
+open_folder_label.bind("<Button-1>", lambda e: os.startfile(os.path.join(os.path.expanduser("~"), "Downloads")))
 
-message_label = tk.Label(status_frame, text="", bg=bg_color, fg=variable_fg, wraplength=500, justify='left')
-message_label.pack()
+# ---------- Globals ----------
+q = queue.Queue(maxsize=10)
+proc = None
+temp_dir_to_clean = None
+temp_receive_dir = None
+current_paths = None  # Store original paths for multi-share
+current_text = None   # Store text for multi-share
+share_in_progress = False
+last_operation_mode = None  # Track last operation mode (send or recv)
+cancel_count = 0  # Track number of cancel clicks
 
-# QR frame
-qr_frame = tk.Frame(main_frame, bg=bg_color)
-qr_frame.pack(pady=5)
+# ---------- Helpers (Optimized) ----------
+def log(msg, kind="info"):
+    msg_box.config(state=tk.NORMAL)
+    tag = "err" if kind=="err" else "ok"
+    msg_box.insert(tk.END, f"[{time.strftime('%H:%M:%S')}] {msg}\n", tag)
+    msg_box.tag_config("err", foreground="#E74C3C")
+    msg_box.tag_config("ok",  foreground="#27AE60")
+    msg_box.config(state=tk.DISABLED)
+    msg_box.see(tk.END)
 
-qr_label = tk.Label(qr_frame, bg=bg_color)
-qr_label.pack()
+def set_buttons(active):
+    state = tk.DISABLED if active else tk.NORMAL
+    for btn in (send_file_btn, send_text_btn, recv_btn):
+        btn.config(state=state)
+    cancel_btn.config(state=tk.NORMAL)  # Always keep Cancel enabled
 
-# Exit button
-exit_button = tk.Button(main_frame, text="Exit", bg=button_bg, fg=button_fg, command=root.quit)
-exit_button.pack(pady=10)
+def show_code(code):
+    global last_operation_mode
+    import qrcode
+    from PIL import Image, ImageTk
+    log(f"Generating QR for code: {code}", "ok")  # Debug log to verify code
+    full_command = f"wormhole-transfer:{code}"  # Prepend "wormhole-transfer:" to the code
+    code_entry.config(state=tk.NORMAL)
+    code_entry.delete(0, tk.END)
+    code_entry.insert(0, code)  # Display only the code in the entry for readability
+    code_entry.config(state="readonly")
+    code_frame.pack(pady=6)
+    code_entry.pack(side="left")
+    copy_btn.pack(side="left", padx=4)
+    img = qrcode.make(full_command)  # Generate QR with the full prefixed command
+    img = img.resize((180, 180), Image.Resampling.LANCZOS)
+    qr_label.img = ImageTk.PhotoImage(img)
+    qr_label.config(image=qr_label.img)
+    qr_label.pack(pady=2)
+    last_operation_mode = "send"  # Set mode for send operations
 
-# Queue and process tracking
-status_queue = queue.Queue()
-current_process = None
+def hide_code():
+    code_frame.pack_forget()
+    qr_label.pack_forget()
+    code_entry.config(state=tk.NORMAL)
+    code_entry.delete(0, tk.END)
+    code_entry.config(state="readonly")
+    open_folder_label.pack_forget()  # Hide open folder label when resetting
 
-def send_file():
-    """Initiate file sending process."""
-    message_label.config(text="")  # Clear previous message
-    file_path = filedialog.askopenfilename()
-    if file_path:
-        status_label.config(text="Sending file...")
-        send_file_button.config(state=tk.DISABLED)
-        send_message_button.config(state=tk.DISABLED)
-        receive_button.config(state=tk.DISABLED)
-        cancel_button.config(state=tk.NORMAL)
-        threading.Thread(target=send_thread, args=(file_path, None), daemon=True).start()
+def copy_code():
+    txt = code_entry.get()
+    if not txt: return
+    root.clipboard_clear()
+    root.clipboard_append(txt)
+    copy_btn.config(text="✓ Copied", bg="#27AE60")
+    root.after(1500, lambda: copy_btn.config(text="Copy", bg="#2ECC71"))
+    log("Code copied to clipboard")
+
+copy_btn.config(command=copy_code)
+
+def prompt_share_again():
+    return messagebox.askyesno("Share Again", "Do you want to share with another person?")
+
+# ---------- Subprocess I/O (Optimized with Hidden Console) ----------
+def run_cmd(cmd, mode, downloads=None):
+    global proc, share_in_progress, temp_receive_dir, current_paths, current_text, temp_dir_to_clean, last_operation_mode
+    share_in_progress = True
+    try:
+        flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0  # Hide console on Windows
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=8192,
+            creationflags=flags  # Apply the flag to hide the console
+        )
+    except FileNotFoundError:
+        q.put(("err", "magic-wormhole not installed (pip install magic-wormhole)"))
+        share_in_progress = False
+        return
+
+    q.put(("status","Connecting…"))
+    for line in proc.stdout:
+        ln = line.rstrip()
+        if not ln: continue
+        low = ln.lower()
+
+        # Filter out unwanted banner and instructional lines
+        if "wormhole code" in low and share_in_progress:
+            code = ln.split(":",1)[1].strip()
+            q.put(("code", code))
+        elif any(tok in low for tok in ("%","sending","bytes","progress")):
+            q.put(("prog", ln))
+        elif "written to" in low and mode == "recv":
+            q.put(("status", "Saved to Downloads folder"))  # Simplified status message
+        # Skip logging other lines (e.g., banners, instructions)
+
+    rc = proc.wait()
+    share_in_progress = False
+    if mode == "recv" and rc == 0:
+        import shutil
+        import time
+        max_attempts = 10  # Increased attempts
+        attempt = 0
+        while attempt < max_attempts:
+            try:
+                for item in os.listdir(temp_receive_dir):
+                    source = os.path.join(temp_receive_dir, item)
+                    dest = os.path.join(downloads, item)
+                    if os.path.isfile(source):
+                        # For single files, overwrite if exists
+                        if os.path.exists(dest):
+                            os.remove(dest)
+                        shutil.move(source, dest)
+                    else:
+                        # For bundles (directories), rename with _ddmmyyyy_HHMM if exists
+                        base = item
+                        if os.path.exists(dest):
+                            timestamp = time.strftime("%d%m%Y_%H%M")
+                            dest = os.path.join(downloads, f"{base}_{timestamp}")
+                        shutil.move(source, dest)
+                break  # Exit loop if successful
+            except PermissionError:
+                attempt += 1
+                time.sleep(2)  # Increased delay to 2 seconds
+                if attempt == max_attempts:
+                    log("Failed to move files due to permission error after retries", "err")
+        q.put(("dbg", "Download complete."))
+    q.put(("done", f"{'Success' if rc==0 else f'Failed (exit {rc})'}"))
+    last_operation_mode = mode  # Update last operation mode
+
+# ---------- Button actions (Optimized Calls) ----------
+def send_files():
+    global temp_dir_to_clean, current_paths
+    import shutil
+    import tempfile
+    paths = filedialog.askopenfilenames()
+    if not paths: return
+    current_paths = paths  # Store paths for multi-share
+    total_size = sum(os.path.getsize(p) for p in paths)
+    file_names = [os.path.basename(p) for p in paths]
+    if len(paths) == 1:
+        cmd = ["wormhole", "send", paths[0]]
+        status_var.set(f"Preparing: {file_names[0]}")
+        log(f"Sending file: {file_names[0]} ({total_size:,} bytes)")
+    else:
+        temp_parent = tempfile.mkdtemp()
+        bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
+        os.mkdir(bundle_dir)
+        for path in paths:
+            shutil.copy(path, bundle_dir)
+        cmd = ["wormhole", "send", bundle_dir]
+        temp_dir_to_clean = temp_parent
+        status_var.set(f"Preparing bundle of {len(paths)} files")
+        log(f"Sending bundle: {', '.join(file_names[:3])}{'...' if len(file_names) > 3 else ''} (Total: {total_size:,} bytes)")
+    set_buttons(True); hide_code(); progress_var.set("")
+    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
 
 def send_message():
-    """Initiate message sending process."""
-    message_label.config(text="")  # Clear previous message
-    message = simpledialog.askstring("Send Message", "Enter the message to send:")
-    if message:
-        status_label.config(text="Sending message...")
-        send_file_button.config(state=tk.DISABLED)
-        send_message_button.config(state=tk.DISABLED)
-        receive_button.config(state=tk.DISABLED)
-        cancel_button.config(state=tk.NORMAL)
-        threading.Thread(target=send_thread, args=(None, message), daemon=True).start()
+    global current_text
+    txt = simpledialog.askstring("Send Message", "Enter message to send:", parent=root)
+    if not txt: return
+    current_text = txt  # Store text for multi-share
+    status_var.set("Preparing message…")
+    log(f"Sending message: {txt[:60]}{'…' if len(txt)>60 else ''}")
+    set_buttons(True); hide_code(); progress_var.set("")
+    cmd = ["wormhole", "send", "--text", txt.strip()]
+    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
 
-def send_thread(file_path=None, message=None):
-    """Handle sending files or messages."""
-    global current_process
-    try:
-        cmd = ["wormhole", "send", "--text", message] if message else ["wormhole", "send", file_path]
-        current_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        for line in iter(current_process.stdout.readline, ''):
-            line = line.strip()
-            if "Wormhole code is:" in line:
-                code = line.split(":", 1)[1].strip()
-                status_queue.put(("code", code))
-                qr_img = qrcode.make(code)
-                qr_img = qr_img.resize((200, 200), Image.Resampling.LANCZOS)
-                qr_photo = ImageTk.PhotoImage(qr_img)
-                status_queue.put(("qr", qr_photo))
-        current_process.wait()
-        if current_process.returncode == 0:
-            status_queue.put(("done", "Send complete"))
-        else:
-            status_queue.put(("error", "Send failed"))
-    except Exception as e:
-        status_queue.put(("error", str(e)))
+def receive():
+    global temp_receive_dir
+    code = simpledialog.askstring("Receive", "Enter wormhole code:", parent=root)
+    if not code: return
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads, exist_ok=True)
+    import tempfile
+    temp_receive_dir = tempfile.mkdtemp()
+    original_cwd = os.getcwd()
 
-def receive_file():
-    """Initiate receiving process."""
-    message_label.config(text="")  # Clear previous message
-    code = simpledialog.askstring("Receive", "Enter wormhole code:")
-    if code:
-        status_label.config(text="Receiving...")
-        send_file_button.config(state=tk.DISABLED)
-        send_message_button.config(state=tk.DISABLED)
-        receive_button.config(state=tk.DISABLED)
-        cancel_button.config(state=tk.NORMAL)
-        threading.Thread(target=receive_thread, args=(code,), daemon=True).start()
+    status_var.set("Connecting to receive…")
+    log("Receiving into Downloads folder")
+    set_buttons(True); hide_code(); progress_var.set("")
 
-def receive_thread(code):
-    """Handle receiving files or messages."""
-    global current_process
-    try:
-        current_process = subprocess.Popen(["wormhole", "receive", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        while True:
-            line = current_process.stdout.readline()
-            if not line:
-                break
-            line = line.strip()
-            if "Receiving text message" in line:
-                message_line = current_process.stdout.readline().strip()
-                if message_line.startswith("Message: "):
-                    message = message_line[len("Message: "):]
-                    status_queue.put(("message", message))
-            elif "ok? (y/n):" in line:
-                current_process.stdin.write('y\n')
-                current_process.stdin.flush()
-        current_process.wait()
-        if current_process.returncode == 0:
-            status_queue.put(("done", "Receive complete"))
-        else:
-            status_queue.put(("error", "Receive failed"))
-    except Exception as e:
-        status_queue.put(("error", str(e)))
+    cmd = ["wormhole","receive","--accept-file",code]
 
-def cancel_operation():
-    """Cancel ongoing operation."""
-    global current_process
-    if current_process:
-        current_process.terminate()
-        status_label.config(text="Cancelled")
-        send_file_button.config(state=tk.NORMAL)
-        send_message_button.config(state=tk.NORMAL)
-        receive_button.config(state=tk.NORMAL)
-        cancel_button.config(state=tk.DISABLED)
-        code_label.config(text="")
-        qr_label.config(image="")
-        message_label.config(text="")
+    def run_with_chdir():
+        try:
+            os.chdir(temp_receive_dir)
+            run_cmd(cmd, "recv", downloads=downloads)
+        finally:
+            os.chdir(original_cwd)
 
-def check_queue():
-    """Update GUI based on queue messages."""
+    threading.Thread(target=run_with_chdir, daemon=True).start()
+
+def cancel():
+    global proc, temp_dir_to_clean, temp_receive_dir, cancel_count
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        log("Operation cancelled by user", "ok")
+        cancel_count = 0  # Reset count after first cancel
+    else:
+        cancel_count += 1
+        if cancel_count == 2:
+            msg_box.config(state=tk.NORMAL)
+            msg_box.delete(1.0, tk.END)  # Clear message box
+            status_var.set("Ready")  # Reset status
+            hide_code()  # Reset UI
+            current_paths = None
+            current_text = None
+            if temp_dir_to_clean:
+                import shutil
+                shutil.rmtree(temp_dir_to_clean)
+                temp_dir_to_clean = None
+            if temp_receive_dir:
+                import shutil
+                shutil.rmtree(temp_receive_dir)
+                temp_receive_dir = None
+            cancel_count = 0  # Reset count after second cancel
+    set_buttons(False)  # Ensure buttons are enabled after cancel
+
+# ---------- UI update loop (Optimized Interval) ----------
+def ui_pump():
+    global temp_dir_to_clean, current_paths, current_text, temp_receive_dir
     try:
         while True:
-            msg = status_queue.get_nowait()
-            if msg[0] == "code":
-                code_label.config(text=f"Code: {msg[1]}")
-            elif msg[0] == "qr":
-                qr_label.config(image=msg[1])
-                qr_label.image = msg[1]  # Prevent garbage collection
-            elif msg[0] == "message":
-                message_label.config(text=f"Received message: {msg[1]}")
-            elif msg[0] == "done":
-                status_label.config(text=msg[1])
-                send_file_button.config(state=tk.NORMAL)
-                send_message_button.config(state=tk.NORMAL)
-                receive_button.config(state=tk.NORMAL)
-                cancel_button.config(state=tk.DISABLED)
-                code_label.config(text="")
-                qr_label.config(image="")
-                # Message persists until next task
-            elif msg[0] == "error":
-                messagebox.showerror("Error", msg[1])
-                status_label.config(text="Error")
-                send_file_button.config(state=tk.NORMAL)
-                send_message_button.config(state=tk.NORMAL)
-                receive_button.config(state=tk.NORMAL)
-                cancel_button.config(state=tk.DISABLED)
-                code_label.config(text="")
-                qr_label.config(image="")
-                message_label.config(text="")
+            kind, payload = q.get_nowait()
+            if kind == "code":
+                show_code(payload)
+                status_var.set("Share this code with recipient")
+                log(f"Generated code: {payload}")
+            elif kind == "prog":
+                progress_var.set(payload)
+                if not progress_lab.winfo_ismapped(): progress_lab.pack()
+            elif kind == "status":
+                status_var.set(payload)
+            elif kind == "err":
+                status_var.set("Error")
+                log(payload, "err")
+                messagebox.showerror("Error", payload)
+                set_buttons(False)
+                progress_lab.pack_forget()
+            elif kind == "done":
+                status_var.set(payload)
+                log(payload, "ok" if payload.startswith("Success") else "err")
+                set_buttons(False)  # Re-enable all buttons, including Cancel, after operation
+                progress_lab.pack_forget()
+                if payload.startswith("Success") and not share_in_progress:
+                    if last_operation_mode == "send" and (current_paths or current_text):  # Only prompt if send data exists and it was a send operation
+                        if prompt_share_again():
+                            if current_paths:
+                                import shutil
+                                import tempfile
+                                temp_parent = tempfile.mkdtemp()
+                                bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
+                                os.mkdir(bundle_dir)
+                                for path in current_paths:
+                                    shutil.copy(path, bundle_dir)
+                                cmd = ["wormhole", "send", bundle_dir]
+                                temp_dir_to_clean = temp_parent
+                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
+                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+                            elif current_text:
+                                cmd = ["wormhole", "send", "--text", current_text.strip()]
+                                temp_dir_to_clean = None  # No temp dir for text
+                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
+                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+            elif kind == "dbg":
+                log(payload)
+                if payload == "Download complete.":
+                    open_folder_label.pack(pady=2)  # Show open folder label after receive
+                    root.after(10000, open_folder_label.pack_forget)  # Hide after 10 seconds
     except queue.Empty:
         pass
-    root.after(100, check_queue)
+    root.after(50, ui_pump)
 
-# Start queue checking
-root.after(100, check_queue)
+# ---------- Wire up events ----------
+send_file_btn.config(command=send_files)
+send_text_btn.config(command=send_message)
+recv_btn.config(command=receive)
+cancel_btn.config(command=cancel)
+root.bind('<Control-s>', lambda e: send_files())
+root.bind('<Control-m>', lambda e: send_message())
+root.bind('<Control-r>', lambda e: receive())
+root.bind('<Escape>', lambda e: cancel() if cancel_btn['state'] == tk.NORMAL else None)
+
+root.after(50, ui_pump)
+root.protocol("WM_DELETE_WINDOW", root.quit)
 root.mainloop()
