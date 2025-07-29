@@ -364,6 +364,22 @@ def ui_pump():
                                 temp_dir_to_clean = None  # No temp dir for text
                                 set_buttons(True)  # Disable other buttons but keep Cancel enabled
                                 threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+                        else:
+                            # Reset on "No" after send
+                            msg_box.config(state=tk.NORMAL)
+                            msg_box.delete(1.0, tk.END)  # Clear message box
+                            status_var.set("Ready")  # Reset status
+                            hide_code()  # Clear code and QR
+                            current_paths = None
+                            current_text = None
+                            if temp_dir_to_clean:
+                                import shutil
+                                shutil.rmtree(temp_dir_to_clean)
+                                temp_dir_to_clean = None
+                            if temp_receive_dir:
+                                import shutil
+                                shutil.rmtree(temp_receive_dir)
+                                temp_receive_dir = None
             elif kind == "dbg":
                 log(payload)
                 if payload == "Download complete.":
