@@ -1,3 +1,8 @@
+# System_info_win
+Windows OS and HW information
+Windows OS and HW information using tkinter GUI.
+Windows OS and HW information using tkinter GUI (Release v1.0.1) & Using wxPython (Release v2.0.1).
+=======
 🎉 Windows Utility Tools Hub 🎉
 Welcome to the Windows Utility Tools Hub, your one-stop repository for handy, lightweight, and powerful utilities designed to enhance your Windows experience! 🌟 Created with love by stealth1993, this collection includes tools like SystemInfo, ShowHideTaskbar, and many more exciting additions on the way! 🚀
 
