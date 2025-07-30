@@ -11,11 +11,10 @@ import threading
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, Toplevel, Button, Entry
+import tempfile
+import shutil
 import cv2
 from pyzbar.pyzbar import decode
-import shutil
-import numpy as np
-import tempfile  # Moved to top-level import
 
 # ---------- Appearance (Optimized for Readability) ----------
 BG        = "#F5F5F5"
@@ -42,14 +41,14 @@ canvas.pack(side="left", fill="both", expand=True)
 scroll.pack(side="right", fill="y")
 
 # ---------- Widgets (Optimized Layout) ----------
-tk.Label(holder, text="Magic-Wormhole Transfer",
-         font=("Arial", 16, "bold"), bg=BG, fg=FG_TITLE).pack(pady=10)
+tk.Label(holder, text="Magic-Wormhole Transfer", font=FONT, bg=BG, fg=FG_TITLE).pack(pady=10)
 
-btn_bar = tk.Frame(holder, bg=BG); btn_bar.pack(pady=6)
-send_file_btn = tk.Button(btn_bar, text="Send Files", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
-send_text_btn = tk.Button(btn_bar, text="Send Message", width=12, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
-recv_btn      = tk.Button(btn_bar, text="Receive", width=10, bg=BTN_BG, fg=FG_BTN, font=("Arial", 12, "bold"))
-cancel_btn    = tk.Button(btn_bar, text="Cancel", width=10, bg="#E74C3C", fg="white", state=tk.DISABLED, font=("Arial", 12, "bold"))
+btn_bar = tk.Frame(holder, bg=BG)
+btn_bar.pack(pady=6)
+send_file_btn = tk.Button(btn_bar, text="Send Files", width=10, bg=BTN_BG, fg=FG_BTN, font=FONT)
+send_text_btn = tk.Button(btn_bar, text="Send Message", width=12, bg=BTN_BG, fg=FG_BTN, font=FONT)
+recv_btn = tk.Button(btn_bar, text="Receive", width=10, bg=BTN_BG, fg=FG_BTN, font=FONT)
+cancel_btn = tk.Button(btn_bar, text="Cancel", width=10, bg="#E74C3C", fg="white", state=tk.DISABLED, font=FONT)
 for i, b in enumerate((send_file_btn, send_text_btn, recv_btn, cancel_btn)):
     b.grid(row=0, column=i, padx=4, pady=2)
 
@@ -57,24 +56,18 @@ status_var = tk.StringVar(value="Ready")
 tk.Label(holder, textvariable=status_var, font=FONT, bg=BG, fg=FG_STATUS).pack()
 
 progress_var = tk.StringVar()
-progress_lab = tk.Label(holder, textvariable=progress_var,
-                        font=("Courier", 10), bg=BG, fg=FG_STATUS)
+progress_lab = tk.Label(holder, textvariable=progress_var, font=("Courier", 10), bg=BG, fg=FG_STATUS)
 
 code_frame = tk.Frame(holder, bg=BG)
-tk.Label(code_frame, text="🔑 Code (to share):",
-         font=("Arial", 12, "bold"), bg=BG, fg=FG_TITLE).pack(side="left", padx=(0,2))
-code_entry = tk.Entry(code_frame, width=25,
-                      font=("Courier", 12, "bold"), bg="#ECF0F1", fg=FG_CODE,
-                      justify="center", relief="flat", state="readonly")
+tk.Label(code_frame, text="🔑 Code (to share):", font=FONT, bg=BG, fg=FG_TITLE).pack(side="left", padx=(0, 2))
+code_entry = tk.Entry(code_frame, width=25, font=FONT, bg="#ECF0F1", fg=FG_CODE, justify="center", relief="flat", state="readonly")
 copy_btn = tk.Button(code_frame, text="Copy", bg="#2ECC71", fg="white")
 qr_label = tk.Label(holder, bg=BG)
 
-msg_box = tk.Text(holder, height=5, wrap=tk.WORD,
-                  bg="#ECF0F1", fg=FG_STATUS, font=FONT, state=tk.DISABLED)
+msg_box = tk.Text(holder, height=5, wrap=tk.WORD, bg="#ECF0F1", fg=FG_STATUS, font=FONT, state=tk.DISABLED)
 msg_box.pack(padx=10, pady=8, fill="both", expand=True)
 
-exit_btn = tk.Button(holder, text="Exit", bg="#E74C3C", fg="white",
-                     width=10, command=root.quit, font=("Arial", 12, "bold"))
+exit_btn = tk.Button(holder, text="Exit", bg="#E74C3C", fg="white", width=10, command=root.quit, font=FONT)
 exit_btn.pack(pady=8)
 
 # ---------- Footer ----------
@@ -88,7 +81,7 @@ dev_label.pack(side="right", padx=10)
 # ---------- Temporary Open Folder Label ----------
 open_folder_label = tk.Label(holder, text="Open folder to view file(s)", fg=FG_STATUS, font=("Arial", 10, "underline"),
                             cursor="hand2", bg=BG)
-open_folder_label.pack_forget()  # Initially hidden
+open_folder_label.pack_forget()
 open_folder_label.bind("<Button-1>", lambda e: os.startfile(os.path.join(os.path.expanduser("~"), "Downloads")))
 
 # ---------- Globals ----------
@@ -178,7 +171,8 @@ def scan_qr():
                 cv2.destroyAllWindows()
                 return code
         cv2.imshow("Scan QR Code", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Check for window close event or 'q' key
+        if cv2.waitKey(1) & 0xFF == ord('q') or cv2.getWindowProperty("Scan QR Code", cv2.WND_PROP_VISIBLE) < 1:
             break
     cap.release()
     cv2.destroyAllWindows()
@@ -222,10 +216,9 @@ def run_cmd(cmd, mode, downloads=None):
 
     rc = proc.wait()
     share_in_progress = False
-    if mode == "recv" and rc == 0:
-        import shutil
+    if mode == "recv" and rc == 0 and temp_receive_dir:
         import time
-        max_attempts = 10  # Increased attempts
+        max_attempts = 10
         attempt = 0
         while attempt < max_attempts:
             try:
@@ -233,21 +226,19 @@ def run_cmd(cmd, mode, downloads=None):
                     source = os.path.join(temp_receive_dir, item)
                     dest = os.path.join(downloads, item)
                     if os.path.isfile(source):
-                        # For single files, overwrite if exists
                         if os.path.exists(dest):
                             os.remove(dest)
                         shutil.move(source, dest)
                     else:
-                        # For bundles (directories), rename with _ddmmyyyy_HHMM if exists
                         base = item
                         if os.path.exists(dest):
                             timestamp = time.strftime("%d%m%Y_%H%M")
                             dest = os.path.join(downloads, f"{base}_{timestamp}")
                         shutil.move(source, dest)
-                break  # Exit loop if successful
+                break
             except PermissionError:
                 attempt += 1
-                time.sleep(2)  # Increased delay to 2 seconds
+                time.sleep(2)
                 if attempt == max_attempts:
                     log("Failed to move files due to permission error after retries", "err")
         q.put(("dbg", "Download complete."))
@@ -277,7 +268,7 @@ def send_files():
         status_var.set(f"Preparing bundle of {len(paths)} files")
         log(f"Sending bundle: {', '.join(file_names[:3])}{'...' if len(file_names) > 3 else ''} (Total: {total_size:,} bytes)")
     set_buttons(True); hide_code(); progress_var.set("")
-    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
 
 def send_message():
     global current_text
@@ -285,32 +276,31 @@ def send_message():
     if not txt: return
     current_text = txt  # Store text for multi-share
     status_var.set("Preparing message…")
-    log(f"Sending message: {txt[:60]}{'…' if len(txt)>60 else ''}")
+    log(f"Sending message: {txt[:60]}{'…' if len(txt) > 60 else ''}")
     set_buttons(True); hide_code(); progress_var.set("")
     cmd = ["wormhole", "send", "--text", txt.strip()]
-    threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+    threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
 
 def receive():
     global temp_receive_dir
-    # Create custom dialog for receive
     receive_dialog = Toplevel(root)
     receive_dialog.title("Receive File")
     receive_dialog.configure(bg=BG)
     receive_dialog.geometry("300x150")
 
-    # Code input field
     code_label = tk.Label(receive_dialog, text="Enter Wormhole Code:", font=FONT, bg=BG, fg=FG_TITLE)
     code_label.pack(pady=10)
     code_entry = Entry(receive_dialog, width=25, font=FONT, bg="#ECF0F1", fg=FG_CODE)
     code_entry.pack(pady=5)
+    code_entry.bind("<Return>", lambda e: get_code())  # Bind Enter key
 
-    # Get button
     def get_code():
         code = code_entry.get().strip()
         if code:
             receive_dialog.destroy()
             downloads = os.path.join(os.path.expanduser("~"), "Downloads")
             os.makedirs(downloads, exist_ok=True)
+            global temp_receive_dir
             temp_receive_dir = tempfile.mkdtemp()
             original_cwd = os.getcwd()
             status_var.set("Connecting to receive…")
@@ -328,13 +318,13 @@ def receive():
     get_btn = Button(receive_dialog, text="Get", command=get_code, bg=BTN_BG, fg=FG_BTN, font=FONT)
     get_btn.pack(pady=5)
 
-    # Receive by QR button
     def receive_by_qr():
         code = scan_qr()
         if code:
             receive_dialog.destroy()
             downloads = os.path.join(os.path.expanduser("~"), "Downloads")
             os.makedirs(downloads, exist_ok=True)
+            global temp_receive_dir
             temp_receive_dir = tempfile.mkdtemp()
             original_cwd = os.getcwd()
             status_var.set("Connecting to receive…")
@@ -365,26 +355,24 @@ def cancel():
         except subprocess.TimeoutExpired:
             proc.kill()
         log("Operation cancelled by user", "ok")
-        cancel_count = 0  # Reset count after first cancel
+        cancel_count = 0
     else:
         cancel_count += 1
         if cancel_count == 2:
             msg_box.config(state=tk.NORMAL)
-            msg_box.delete(1.0, tk.END)  # Clear message box
-            status_var.set("Ready")  # Reset status
-            hide_code()  # Reset UI
+            msg_box.delete(1.0, tk.END)
+            status_var.set("Ready")
+            hide_code()
             current_paths = None
             current_text = None
             if temp_dir_to_clean:
-                import shutil
                 shutil.rmtree(temp_dir_to_clean)
                 temp_dir_to_clean = None
             if temp_receive_dir:
-                import shutil
                 shutil.rmtree(temp_receive_dir)
                 temp_receive_dir = None
-            cancel_count = 0  # Reset count after second cancel
-    set_buttons(False)  # Ensure buttons are enabled after cancel
+            cancel_count = 0
+    set_buttons(False)
 
 # ---------- UI update loop (Optimized Interval) ----------
 def ui_pump():
@@ -410,13 +398,12 @@ def ui_pump():
             elif kind == "done":
                 status_var.set(payload)
                 log(payload, "ok" if payload.startswith("Success") else "err")
-                set_buttons(False)  # Re-enable all buttons, including Cancel, after operation
+                set_buttons(False)
                 progress_lab.pack_forget()
                 if payload.startswith("Success") and not share_in_progress:
-                    if last_operation_mode == "send" and (current_paths or current_text):  # Only prompt if send data exists and it was a send operation
+                    if last_operation_mode == "send" and (current_paths or current_text):
                         if prompt_share_again():
                             if current_paths:
-                                import shutil
                                 temp_parent = tempfile.mkdtemp()
                                 bundle_dir = os.path.join(temp_parent, "wormhole-bundle")
                                 os.mkdir(bundle_dir)
@@ -424,34 +411,31 @@ def ui_pump():
                                     shutil.copy(path, bundle_dir)
                                 cmd = ["wormhole", "send", bundle_dir]
                                 temp_dir_to_clean = temp_parent
-                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
-                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+                                set_buttons(True)
+                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
                             elif current_text:
                                 cmd = ["wormhole", "send", "--text", current_text.strip()]
-                                temp_dir_to_clean = None  # No temp dir for text
-                                set_buttons(True)  # Disable other buttons but keep Cancel enabled
-                                threading.Thread(target=lambda: run_cmd(cmd, "send", downloads=None), daemon=True).start()
+                                temp_dir_to_clean = None
+                                set_buttons(True)
+                                threading.Thread(target=lambda: run_cmd(cmd, "send"), daemon=True).start()
                         else:
-                            # Reset on "No" after send
                             msg_box.config(state=tk.NORMAL)
-                            msg_box.delete(1.0, tk.END)  # Clear message box
-                            status_var.set("Ready")  # Reset status
-                            hide_code()  # Clear code and QR
+                            msg_box.delete(1.0, tk.END)
+                            status_var.set("Ready")
+                            hide_code()
                             current_paths = None
                             current_text = None
                             if temp_dir_to_clean:
-                                import shutil
                                 shutil.rmtree(temp_dir_to_clean)
                                 temp_dir_to_clean = None
                             if temp_receive_dir:
-                                import shutil
                                 shutil.rmtree(temp_receive_dir)
                                 temp_receive_dir = None
             elif kind == "dbg":
                 log(payload)
                 if payload == "Download complete.":
-                    open_folder_label.pack(pady=2)  # Show open folder label after receive
-                    root.after(10000, open_folder_label.pack_forget)  # Hide after 10 seconds
+                    open_folder_label.pack(pady=2)
+                    root.after(10000, open_folder_label.pack_forget)
     except queue.Empty:
         pass
     root.after(50, ui_pump)
